@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDFからCSVへ変換</title>
+    <!-- Tailwind CSSを読み込み -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- PDF.jsを読み込み (PDF解析ライブラリ) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.min.js"></script>
+    <style>
+        /* カスタムスタイル */
+        body {
+            font-family: "Inter", sans-serif; /* フォントをInterに設定 */
+            background-color: #f0f4f8; /* 背景色 */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+        .container {
+            background-color: #ffffff; /* コンテナの背景色 */
+            padding: 2.5rem; /* パディング */
+            border-radius: 0.75rem; /* 角丸 */
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); /* 影 */
+            width: 100%;
+            max-width: 32rem; /* 最大幅 */
+            text-align: center;
+        }
+        input[type="file"] {
+            display: none; /* ファイル入力フィールドを非表示にする */
+        }
+        .custom-file-upload {
+            border: 2px dashed #cbd5e1; /* 点線ボーダー */
+            padding: 1rem 1.5rem; /* パディング */
+            border-radius: 0.5rem; /* 角丸 */
+            cursor: pointer; /* カーソルをポインターに */
+            display: inline-block;
+            margin-bottom: 1rem;
+            transition: all 0.2s ease-in-out; /* ホバーアニメーション */
+        }
+        .custom-file-upload:hover {
+            border-color: #94a3b8;
+            background-color: #f8fafc;
+        }
+        button {
+            background-color: #4f46e5; /* ボタンの背景色 */
+            color: white; /* 文字色 */
+            padding: 0.75rem 1.5rem; /* パディング */
+            border-radius: 0.5rem; /* 角丸 */
+            border: none;
+            cursor: pointer;
+            font-weight: 600; /* フォントの太さ */
+            transition: background-color 0.2s ease-in-out; /* ホバーアニメーション */
+        }
+        button:hover {
+            background-color: #4338ca;
+        }
+        button:disabled {
+            background-color: #a5b4fc; /* 無効時の背景色 */
+            cursor: not-allowed; /* 無効時のカーソル */
+        }
+        .message {
+            margin-top: 1rem;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            font-size: 0.9rem;
+        }
+        .message.info {
+            background-color: #e0f2fe;
+            color: #0284c7;
+        }
+        .message.error {
+            background-color: #fee2e2;
+            color: #dc2626;
+        }
+        .message.success {
+            background-color: #dcfce7;
+            color: #16a34a;
+        }
+        .download-link {
+            display: inline-block;
+            margin-top: 1.5rem;
+            background-color: #22c55e;
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            text-decoration: none;
+            font-weight: 600;
+            transition: background-color 0.2s ease-in-out;
+        }
+        .download-link:hover {
+            background-color: #16a34a;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="text-2xl font-bold text-gray-800 mb-6">PDFからCSVへ変換</h1>
+        <p class="text-gray-600 mb-4">PDFファイルを選択し、テキストコンテンツをCSV形式で抽出します。</p>
+        <p class="text-sm text-gray-500 mb-6">
+            <strong class="text-red-500">注意:</strong> このツールはPDFからテキストを抽出し、各行をCSVの行として扱います。複雑な表形式のデータ抽出には、より高度なツールや手動での調整が必要になる場合があります。
+        </p>
+
+        <!-- ファイルアップロードボタン -->
+        <label for="pdfFile" class="custom-file-upload">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 inline-block mr-2 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+            </svg>
+            <span id="fileName">PDFファイルを選択</span>
+        </label>
+        <input type="file" id="pdfFile" accept=".pdf">
+
+        <!-- 変換ボタン -->
+        <button id="convertButton" disabled>
+            <span id="buttonText">CSVに変換</span>
+        </button>
+
+        <!-- メッセージ表示エリア -->
+        <div id="messageContainer" class="message hidden"></div>
+        <!-- ダウンロードリンク -->
+        <a id="downloadLink" class="download-link hidden" download="extracted_text.csv">CSVをダウンロード</a>
+    </div>
+
+    <script>
+        // PDF.js workerのパスを設定
+        // これにより、PDF解析がバックグラウンドで行われ、UIがブロックされるのを防ぎます。
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.worker.min.js';
+
+        // DOM要素の取得
+        const pdfFileInput = document.getElementById('pdfFile');
+        const fileNameSpan = document.getElementById('fileName');
+        const convertButton = document.getElementById('convertButton');
+        const buttonText = document.getElementById('buttonText');
+        const messageContainer = document.getElementById('messageContainer');
+        const downloadLink = document.getElementById('downloadLink');
+
+        let selectedFile = null; // 選択されたファイルを保持する変数
+
+        /**
+         * メッセージを表示する関数
+         * @param {string} msg - 表示するメッセージ
+         * @param {string} type - メッセージの種類 ('info', 'success', 'error')
+         */
+        function showMessage(msg, type = 'info') {
+            messageContainer.textContent = msg;
+            messageContainer.className = `message ${type}`; // クラスを設定してスタイルを適用
+            messageContainer.classList.remove('hidden'); // 非表示クラスを削除
+        }
+
+        /**
+         * メッセージを非表示にする関数
+         */
+        function hideMessage() {
+            messageContainer.classList.add('hidden'); // 非表示クラスを追加
+        }
+
+        /**
+         * CSV値のエスケープ処理
+         * 値にカンマ、二重引用符、改行が含まれる場合、二重引用符で囲み、二重引用符は二重にする。
+         * @param {string} value - エスケープする文字列
+         * @returns {string} エスケープされた文字列
+         */
+        function escapeCsvValue(value) {
+            if (value === null || value === undefined) {
+                return '';
+            }
+            let stringValue = String(value);
+            // カンマ、二重引用符、改行が含まれる場合はエスケープする
+            if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n') || stringValue.includes('\r')) {
+                return `"${stringValue.replace(/"/g, '""')}"`; // 二重引用符を二重にし、全体を二重引用符で囲む
+            }
+            return stringValue;
+        }
+
+        // ファイル入力フィールドの変更イベントリスナー
+        pdfFileInput.addEventListener('change', (event) => {
+            selectedFile = event.target.files[0]; // 選択されたファイルを取得
+            if (selectedFile) {
+                fileNameSpan.textContent = selectedFile.name; // ファイル名を表示
+                convertButton.disabled = false; // 変換ボタンを有効化
+                hideMessage(); // メッセージを非表示に
+                downloadLink.classList.add('hidden'); // ダウンロードリンクを非表示に
+            } else {
+                fileNameSpan.textContent = 'PDFファイルを選択';
+                convertButton.disabled = true; // 変換ボタンを無効化
+            }
+        });
+
+        // 変換ボタンのクリックイベントリスナー
+        convertButton.addEventListener('click', async () => {
+            if (!selectedFile) {
+                showMessage('PDFファイルが選択されていません。', 'error');
+                return;
+            }
+
+            showMessage('PDFを処理中...', 'info');
+            convertButton.disabled = true; // ボタンを無効化
+            buttonText.textContent = '処理中...'; // ボタンのテキストを変更
+            downloadLink.classList.add('hidden'); // ダウンロードリンクを非表示に
+
+            try {
+                const fileReader = new FileReader();
+                fileReader.onload = async () => {
+                    const arrayBuffer = fileReader.result; // ファイルの内容をArrayBufferとして取得
+                    const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise; // PDFドキュメントを読み込む
+                    let fullText = ''; // 全ページのテキストを格納する変数
+
+                    // 各ページをループしてテキストを抽出
+                    for (let i = 1; i <= pdfDoc.numPages; i++) {
+                        const page = await pdfDoc.getPage(i);
+                        const textContent = await page.getTextContent();
+                        // 各テキストアイテムの文字列を結合し、改行で区切る
+                        // これは非常に基本的な抽出であり、PDFのレイアウトによっては適切でない場合があります
+                        fullText += textContent.items.map(item => item.str).join(' ') + '\n';
+                    }
+
+                    // CSV形式に変換（各行をCSVの1行として、適切にエスケープ）
+                    // 空行を除外
+                    const lines = fullText.split('\n').filter(line => line.trim() !== '');
+                    const csvRows = lines.map(line => escapeCsvValue(line)); // 各行をエスケープ
+                    const csvContent = csvRows.join('\n'); // 行を改行で結合してCSVコンテンツを作成
+
+                    // Blobを作成し、ダウンロードリンクを生成
+                    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                    const url = URL.createObjectURL(blob);
+
+                    downloadLink.href = url; // ダウンロードリンクのURLを設定
+                    downloadLink.download = selectedFile.name.replace('.pdf', '.csv'); // ダウンロード時のファイル名を設定
+                    downloadLink.classList.remove('hidden'); // ダウンロードリンクを表示
+                    showMessage('CSVファイルが生成されました！', 'success');
+                };
+                fileReader.readAsArrayBuffer(selectedFile); // ファイルをArrayBufferとして読み込み開始
+
+            } catch (error) {
+                console.error('PDF処理エラー:', error);
+                showMessage(`PDFの処理中にエラーが発生しました: ${error.message}`, 'error');
+            } finally {
+                convertButton.disabled = false; // ボタンを再度有効化
+                buttonText.textContent = 'CSVに変換'; // ボタンのテキストを元に戻す
+            }
+        });
+    </script>
+</body>
+</html>
